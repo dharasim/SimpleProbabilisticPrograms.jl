@@ -6,6 +6,7 @@ using MacroTools: @capture, splitdef, combinedef, postwalk, prewalk
 import Base: show, rand
 import Distributions: logpdf
 
+export logpdf # re-export from Distributions.jl
 export @probprog, fromtrace, totrace
 export iid
 
