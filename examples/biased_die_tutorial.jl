@@ -1,3 +1,9 @@
+# Suppose you have a die and you suspect that it shows even numbers more 
+# frequently than odd numbers. To investigate whether this is true, 
+# you throw the die 1000 times.
+# This tutorial explains how you can quantify how much more plausible it is that
+# the die is indeed biased than that it's just a simple old unbiased die.
+
 using SimpleProbabilisticPrograms, Distributions
 const SPP = SimpleProbabilisticPrograms
 
@@ -55,7 +61,6 @@ function run_inference(trace, prog, num_steps)
   end
   return record, trace
 end
-
 
 # generate artificial data
 # change true bias and number of observations as you like
