@@ -1,3 +1,19 @@
+# Values of this package:
+# - zero cost abstraction for evaluation of logpdfs 
+#   (achieved by type stability and using stack allocation where ever possible)
+# - Simple an intuitive model specification 
+#   (achieved by implementing Distributions.jl interface & using math notation)
+# - Thin abstraction layer with composable inference methods
+#   (so that it's easy to maintain and integrates well into the Julia ecosystem)
+#
+# Not prioritized:
+# - implementation of out-of-the-box inference methods
+#
+# Info:
+# - inspired by Pyro & Gen.jl
+# - using Lens (optics like in Haskell) for achieving type stability in trace 
+#   accesses and updates
+
 module SimpleProbabilisticPrograms
 
 using Random: AbstractRNG, default_rng
