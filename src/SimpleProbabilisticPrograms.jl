@@ -9,6 +9,7 @@ import Distributions: logpdf
 export logpdf # re-export from Distributions.jl
 export @probprog, fromtrace, totrace
 export iid
+export UniformCategorical
 
 struct ProbProg{C, F, A, KW}
   construct::C
@@ -210,10 +211,6 @@ end
 function rand(rng::AbstractRNG, dist::UniformCategorical)
   rand(rng, dist.values)
 end
-
-# tests
-dist = UniformCategorical(Set(1:4))
-@assert -Inf < logpdf(dist, rand(dist)) < 0
 
 ##############################################
 ### Interpreters of probabilistic programs ###
