@@ -55,12 +55,15 @@ Evaluate the logarithm of a trace's probability with `logpdf(prog, trace)`.
 ```julia-repl
 julia> using Distributions: Beta, Bernoulli
 
-julia> @probprog function model(a, b)
+julia> @probprog function beta_bernoulli_model(a, b, n)
            bias ~ Beta(a, b)
-           coins ~ iid(Bernoulli(bias), 10)
+           coins ~ iid(Bernoulli(bias), n)
            return
        end
 model (generic function with 1 method)
+
+julia> prog = beta_bernoulli_model(3, 4, 10)
+ProbProg(...)
 
 julia> x = rand(prog)
 (bias = 0.254528229459866, coins = Bool[1, 1, 1, 0, 0, 1, 0, 1, 0, 0])

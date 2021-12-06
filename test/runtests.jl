@@ -9,6 +9,6 @@ using Distributions: Beta, Bernoulli
   return
 end
 
-model = beta_bernoulli_model(3,4,10)
+model = beta_bernoulli_model(3, 4, 10)
 trace = rand(model)
 @test -Inf < logpdf(model, trace) < 0
