@@ -1,7 +1,7 @@
 # Simple Probabilistic Programs
 Simple implementation of probabilistic programs for the Julia programming language with support for traces allocated on the stack.
 
-## Disclaimer
+## Status
 This package is very much work in progress and it is likely to change in the future. Comments, suggestions, and pull requests are welcome!
 
 ## Quickstart
