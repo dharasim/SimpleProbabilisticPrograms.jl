@@ -11,10 +11,10 @@ julia> using SimpleProbabilisticPrograms
 julia> using Distributions: Beta, Bernoulli
 
 julia> @probprog function beta_bernoulli_model(a, b, n)
-         bias  ~ Beta(a, b)      # sample a number between 0 and 1
-         coin  = Bernoulli(bias) # create biased coin as Bernoulli distribution
-         trows ~ iid(coin, n)    # throw the coin n times
-         return                  # return nothing by convention
+         bias ~ Beta(a, b)      # sample a number between 0 and 1
+         coin = Bernoulli(bias) # create biased coin as Bernoulli distribution
+         throws ~ iid(coin, n)  # throw the coin n times
+         return                 # return nothing by convention
        end
 beta_bernoulli_model (generic function with 1 method)
 
@@ -22,7 +22,7 @@ julia> model = beta_bernoulli_model(3, 4, 10)
 ProbProg(...)
 
 julia> trace = rand(model)
-(bias = 0.15035879436791896, coins = Bool[0, 1, 0, 0, 0, 0, 0, 0, 0, 0])
+(bias = 0.15035879436791896, throws = Bool[0, 1, 0, 0, 0, 0, 0, 0, 0, 0])
 
 julia> logpdf(model, trace)
 -3.5451416292361504
