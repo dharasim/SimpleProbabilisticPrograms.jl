@@ -5,7 +5,7 @@ Simple implementation of probabilistic programs for the Julia programming langua
 This package is very much work in progress and it is likely to change in the future. Comments, suggestions, and pull requests are welcome!
 
 ## Quickstart
-```julia-repl
+```julia
 julia> using SimpleProbabilisticPrograms
 
 julia> using Distributions: Beta, Bernoulli
