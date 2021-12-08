@@ -23,9 +23,11 @@ import Base: show, rand
 import Distributions: logpdf
 
 export logpdf # re-export from Distributions.jl
-export @probprog, fromtrace, totrace
+export @probprog, fromtrace, totrace # construction of probabilistic programs
+export ProbProgSyntaxError
+export add_obs!, logvarpdf # interface for compound distributions
 export iid
-export UniformCategorical
+export UniformCategorical, Dirac, DirCat, flat_dircat # specific distributions
 
 struct ProbProg{C, F, A, KW}
   construct::C
@@ -50,6 +52,12 @@ end
 
 function rand(rng::AbstractRNG, model::ProbProg) 
   fromtrace(model, interpret(model, RandTrace(rng)).interpreter.trace)
+end
+
+function add_obs!(model::ProbProg, x, pscount) 
+  trace = totrace(model, x)
+  interpret(model, AddObs(trace, float(pscount)))
+  return nothing
 end
 
 struct ProbProgSyntaxError <: Exception 
@@ -121,13 +129,13 @@ macro probprog(ex)
   # add interpreter as first argument
   def_dict[:args] = [i, def_dict[:args]...]
 
-  # rewrite all sample statements indicated by `~`
-  def_dict[:body] = postwalk(rewrite_sample_expr, def_dict[:body])
-
   # test that last expression is not a sample expression
   if @capture(def_dict[:body].args[end], _ ~ _)
     throw(ProbProgSyntaxError("last expression cannot be a sample statement"))
   end
+
+  # rewrite all sample statements indicated by `~`
+  def_dict[:body] = postwalk(rewrite_sample_expr, def_dict[:body])
 
   # add interpreter to the original return expression
   def_dict[:body].args[end] = 
@@ -195,6 +203,88 @@ iid(dist, n) = IID(dist, n)
 logpdf(iid::IID, xs) = sum(logpdf(iid.dist, x) for x in xs)
 rand(rng::AbstractRNG, iid::IID) = [rand(rng, iid.dist) for _ in 1:iid.n]
 
+########################
+### Conjugate models ###
+########################
+
+"""
+    add_obs!(distribution, x, pseudocount)
+
+Perform a posterior update by making an observation. Defaults to a no-op.
+"""
+add_obs!(dist, x, pscount) = dist
+
+"""
+    logvarpdf(dist, x)
+
+Probability density function for usage in variational inference. 
+Defaults to `logpdf`.
+"""
+logvarpdf(dist, x) = logpdf(dist, x)
+
+###########################################
+### Dirichlet categorical distributions ###
+###########################################
+
+using SpecialFunctions: digamma, logbeta
+using LogExpFunctions: logsumexp
+using Distributions: Dirichlet, Categorical
+
+mutable struct DirCat{T}
+  pscounts         :: Dict{T, Float64}
+  logpdfs_uptodate :: Bool
+  logpdf           :: Dict{T, Float64}
+  logvarpdf        :: Dict{T, Float64}
+
+  function DirCat(pscounts)
+    @assert(
+      !isempty(pscounts) && all(((x, pscount),) -> pscount > 0, pscounts), 
+      "DirCat parameter invalid")
+    T = keytype(pscounts)
+    new{T}(pscounts, false, Dict{T, Float64}(), Dict{T, Float64}())
+  end
+end
+
+flat_dircat(xs) = DirCat(Dict(x => 1 for x in xs))
+
+function update_logpdfs!(dc::DirCat)
+  logbeta_summed_pscounts = logbeta(sum(values(dc.pscounts)), 1)
+  logsumexp_digamma       = logsumexp(digamma.(values(dc.pscounts)))
+  for x in keys(dc.pscounts)
+    dc.logpdf[x]    = logbeta_summed_pscounts - logbeta(dc.pscounts[x], 1)
+    dc.logvarpdf[x] = digamma(dc.pscounts[x]) - logsumexp_digamma
+  end
+  dc.logpdfs_uptodate = true
+  dc
+end
+
+function rand(rng::AbstractRNG, dc::DirCat)
+  probs = rand(rng, Dirichlet(collect(values(dc.pscounts))))
+  k = rand(rng, Categorical(probs))
+  collect(keys(dc.pscounts))[k]
+end
+
+function logpdf(dc::DirCat, x)
+  if !dc.logpdfs_uptodate
+    update_logpdfs!(dc)
+  end
+  get(dc.logpdf, x, log(0))
+end
+
+function logvarpdf(dc::DirCat, x)
+  if !dc.logpdfs_uptodate
+    update_logpdfs!(dc)
+  end
+  get(dc.logvarpdf, x, log(0))
+end
+
+function add_obs!(dc::DirCat{T}, x::T, pscount) where T
+  @assert dc.pscounts[x] + pscount > 0 "DirCat parameter update invalid"
+  dc.pscounts[x] += pscount
+  dc.logpdfs_uptodate = false
+  dc
+end
+
 ###########################
 ### Uniform Categorical ###
 ###########################
@@ -227,6 +317,22 @@ end
 function rand(rng::AbstractRNG, dist::UniformCategorical)
   rand(rng, dist.values)
 end
+
+###########################
+### Dirac distributions ###
+###########################
+
+"""
+    Dirac(value)
+
+A distribution that puts all probability mass on one value.
+"""
+struct Dirac{T}
+  val::T
+end
+
+logpdf(dist::Dirac, x) = dist.val == x ? log(1) : log(0)
+rand(::AbstractRNG, dist::Dirac) = dist.val
 
 ##############################################
 ### Interpreters of probabilistic programs ###
@@ -308,6 +414,20 @@ function sample(i::RandTrace, dist, get_obs, set_obs)
   x = rand(dist)
   new_trace = set_obs(i.trace, x)
   return RandTrace(i.rng, new_trace), x
+end
+
+"""
+    AddObs(trace, pscount)
+"""
+struct AddObs{T} <: Interpreter
+  trace::T
+  pscount::Float64
+end
+
+function sample(i::AddObs, dist, get_obs, set_obs)
+  x = get_obs(i.trace)
+  add_obs!(dist, x, i.pscount)
+  return i, x
 end
 
 end # module
