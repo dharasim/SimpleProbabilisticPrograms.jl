@@ -52,3 +52,17 @@ end
   @test dc[1].pscounts[trace.char] == 2 && sum(values(dc[1].pscounts)) == 4
   @test dc[2].pscounts[trace.num] == 2 && sum(values(dc[2].pscounts)) == 5
 end
+
+@probprog function rec_model(p)
+  go_further ~ Bernoulli(p)
+  if go_further
+    next_level ~ rec_model(p)
+  end
+  return
+end
+@testset "recursive model" begin
+  model = rec_model(0.3)
+  for _ in 1:10
+    @test log(0) < logpdf(model, rand(model)) < log(1)
+  end
+end

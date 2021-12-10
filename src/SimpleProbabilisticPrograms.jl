@@ -145,16 +145,16 @@ macro probprog(ex)
       :((interpreter=$i, return_val=$(def_dict[:body].args[end])))
     end
 
+  name = def_dict[:name]
+  def_dict[:name] = :run
+
   # The expression returned by the macro evaluates to a definition of a function
   # that constructs a `ProbProg` object. This mimics the construction of 
   # distributions in `Distributions.jl`.
   esc(
     quote
-      function $(def_dict[:name])(args...; kwargs...) 
-        run = let
-          # wrapped in a let statement to avoid name conflict
+      function $name(args...; kwargs...) 
           $(combinedef(def_dict))
-        end
         SimpleProbabilisticPrograms.ProbProg(
           $(def_dict[:name]), run, args, kwargs)
       end
