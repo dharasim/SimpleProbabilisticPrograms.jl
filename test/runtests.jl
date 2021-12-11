@@ -60,6 +60,7 @@ end
   end
   return
 end
+
 @testset "recursive model" begin
   model = rec_model(0.3)
   for _ in 1:10
