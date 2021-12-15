@@ -154,9 +154,8 @@ macro probprog(ex)
   esc(
     quote
       function $name(args...; kwargs...) 
-          $(combinedef(def_dict))
-        SimpleProbabilisticPrograms.ProbProg(
-          $(def_dict[:name]), run, args, kwargs)
+          $(combinedef(def_dict)) # interpolate fun def as "run" method
+        SimpleProbabilisticPrograms.ProbProg($name, run, args, kwargs)
       end
     end
   )
