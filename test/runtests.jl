@@ -1,7 +1,7 @@
 using SimpleProbabilisticPrograms
 using Test
 
-using Distributions: Beta, Bernoulli
+using Distributions: Beta, Bernoulli, Dirac
 
 @testset "basic tests" begin
   @probprog function beta_bernoulli_model(a, b, n)

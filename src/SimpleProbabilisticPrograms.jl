@@ -317,22 +317,6 @@ function rand(rng::AbstractRNG, dist::UniformCategorical)
   rand(rng, dist.values)
 end
 
-###########################
-### Dirac distributions ###
-###########################
-
-"""
-    Dirac(value)
-
-A distribution that puts all probability mass on one value.
-"""
-struct Dirac{T}
-  val::T
-end
-
-logpdf(dist::Dirac, x) = dist.val == x ? log(1) : log(0)
-rand(::AbstractRNG, dist::Dirac) = dist.val
-
 ##############################################
 ### Interpreters of probabilistic programs ###
 ##############################################
