@@ -22,6 +22,28 @@ using Distributions: Beta, Bernoulli
   @test exp(logpdf(dist, rand(dist))) ≈ 1
 end
 
+# test overriding inverse bijections `fromtrace` and `totrace`
+using Distributions: Categorical
+@probprog function bijection_model(index_probs)
+  index ~ Categorical(index_probs)
+  return
+end
+index_probs = [0.5, 0.5]
+model = bijection_model(index_probs)
+@testset "trace bijection 1" begin
+  @test rand(model) isa @NamedTuple{index::Int}
+  @test log(0) < logpdf(model, rand(model)) < log(1)
+end
+
+import SimpleProbabilisticPrograms: fromtrace, totrace
+const vals = ('a', 'b')
+fromtrace(::typeof(bijection_model), trace) = vals[trace.index]
+totrace(::typeof(bijection_model), val) = (;index=findfirst(isequal('a'), vals))
+@testset "trace bijection 2" begin
+  @test rand(model) isa Char
+  @test log(0) < logpdf(model, rand(model)) < log(1)
+end
+
 using LogExpFunctions; logsumexp
 @testset "Dirichlet categorical" begin
   dc = DirCat(Dict("$i" => 2*i for i in 1:3))
