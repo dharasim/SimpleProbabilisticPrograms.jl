@@ -16,18 +16,26 @@
 
 module SimpleProbabilisticPrograms
 
+export @probprog, fromtrace, totrace # construction of probabilistic programs
+export ProbProgSyntaxError
+export logpdf # re-export from Distributions.jl
+export add_obs!, logvarpdf # interface for compound distributions
+export iid
+export UniformCategorical, BetaGeometric, DirCat, flat_dircat # specific dists
+
+using SpecialFunctions: digamma, logbeta
+using LogExpFunctions: logsumexp, logaddexp
+using Distributions: Dirichlet, Categorical
+using Distributions: Beta, Binomial, BetaBinomial, Geometric
 using Random: AbstractRNG, default_rng
 using MacroTools: @capture, splitdef, combinedef, postwalk, prewalk
 
 import Base: show, rand
 import Distributions: logpdf
 
-export logpdf # re-export from Distributions.jl
-export @probprog, fromtrace, totrace # construction of probabilistic programs
-export ProbProgSyntaxError
-export add_obs!, logvarpdf # interface for compound distributions
-export iid
-export UniformCategorical, Dirac, DirCat, flat_dircat # specific distributions
+##############################
+### Probabilistic programs ###
+##############################
 
 struct ProbProg{C, F, A, KW}
   construct::C
@@ -225,10 +233,6 @@ logvarpdf(dist, x) = logpdf(dist, x)
 ### Dirichlet categorical distributions ###
 ###########################################
 
-using SpecialFunctions: digamma, logbeta
-using LogExpFunctions: logsumexp
-using Distributions: Dirichlet, Categorical
-
 mutable struct DirCat{T}
   pscounts         :: Dict{T, Float64}
   logpdfs_uptodate :: Bool
@@ -282,6 +286,53 @@ function add_obs!(dc::DirCat{T}, x::T, pscount) where T
   dc.pscounts[x] += pscount
   dc.logpdfs_uptodate = false
   dc
+end
+
+####################
+### BetaBinomial ###
+####################
+
+function logvarpdf(dist::BetaBinomial, k)
+  n = dist.n
+  p = exp(digamma(dist.α) - logaddexp(digamma(dist.α), digamma(dist.β)))
+  logpdf(Binomial(n, p), k)
+end
+
+function add_obs!(dist::BetaBinomial, k, pscount)
+  n = dist.n
+  dist.α += k * pscount
+  dist.β += (n-k) * pscount
+  dist
+end
+
+#####################
+### BetaGeometric ###
+#####################
+
+mutable struct BetaGeometric
+  α :: Float64
+  β :: Float64
+end
+
+function rand(rng::AbstractRNG, dist::BetaGeometric)
+  p = rand(rng, Beta(dist.α, dist.β))
+  rand(rng, Geometric(p))
+end
+
+# https://www.itl.nist.gov/div898/software/dataplot/refman2/auxillar/bgepdf.htm
+function logpdf(dist::BetaGeometric, n)
+  logbeta(dist.α + 1, dist.β + n) - logbeta(dist.α, dist.β)
+end
+
+function logvarpdf(dist::BetaGeometric, n)
+  p = exp(digamma(dist.α) - logaddexp(digamma(dist.α), digamma(dist.β)))
+  logpdf(Geometric(p), n)
+end
+
+function add_obs!(dist::BetaGeometric, n, pscount)
+  dist.α += pscount
+  dist.β += n * pscount
+  dist
 end
 
 ###########################
