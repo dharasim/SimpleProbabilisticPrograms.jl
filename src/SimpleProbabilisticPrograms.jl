@@ -18,7 +18,7 @@ module SimpleProbabilisticPrograms
 
 export @probprog, fromtrace, totrace # construction of probabilistic programs
 export ProbProgSyntaxError
-export logpdf # re-export from Distributions.jl
+export logpdf, insupport # re-export from Distributions.jl
 export add_obs!, logvarpdf # interface for compound distributions
 export iid
 export UniformCategorical, BetaGeometric, DirCat, flat_dircat # specific dists
@@ -32,7 +32,7 @@ using Random: AbstractRNG, default_rng
 using MacroTools: @capture, splitdef, combinedef, postwalk, prewalk
 
 import Base: show, rand
-import Distributions: logpdf
+import Distributions: logpdf, insupport
 
 ##############################
 ### Probabilistic programs ###
@@ -59,8 +59,15 @@ function logpdf(model::ProbProg, x)
   interpreter.logpdf
 end
 
-function rand(rng::AbstractRNG, model::ProbProg) 
-  fromtrace(model, interpret(model, RandTrace(rng)).interpreter.trace)
+function rand(rng::AbstractRNG, model::ProbProg)
+  trace = interpret(model, RandTrace(rng)).interpreter.trace
+  fromtrace(model, trace)
+end
+
+function insupport(model::ProbProg, x)
+  trace = totrace(model, x)
+  interpreter, _ = interpret(model, SupportInterpreter(trace))
+  interpreter.insupport
 end
 
 function add_obs!(model::ProbProg, x, pscount) 
@@ -210,6 +217,7 @@ iid(dist, n) = IID(dist, n)
 
 logpdf(iid::IID, xs) = sum(logpdf(iid.dist, x) for x in xs)
 rand(rng::AbstractRNG, iid::IID) = [rand(rng, iid.dist) for _ in 1:iid.n]
+insupport(iid::IID, xs) = all(insupport(iid.dist, x) for x in xs)
 
 ########################
 ### Conjugate models ###
@@ -250,6 +258,7 @@ mutable struct DirCat{T}
 end
 
 flat_dircat(xs) = DirCat(Dict(x => 1 for x in xs))
+insupport(dc::DirCat, x) = haskey(dc.pscounts, x) && dc.pscounts[x] > 0
 
 function update_logpdfs!(dc::DirCat)
   logbeta_summed_pscounts = logbeta(sum(values(dc.pscounts)), 1)
@@ -315,6 +324,8 @@ mutable struct BetaGeometric
   β :: Float64
 end
 
+insupport(::BetaGeometric, n) = 0 <= n < Inf
+
 function rand(rng::AbstractRNG, dist::BetaGeometric)
   p = rand(rng, Beta(dist.α, dist.β))
   rand(rng, Geometric(p))
@@ -361,12 +372,11 @@ struct UniformCategorical{T}
   values::Set{T}
 end
 
+insupport(dist::UniformCategorical, x) = x in dist.values
+rand(rng::AbstractRNG, dist::UniformCategorical) = rand(rng, dist.values)
+
 function logpdf(dist::UniformCategorical, x) 
   x in dist.values ? log(1) - log(length(dist.values)) : log(0)
-end
-
-function rand(rng::AbstractRNG, dist::UniformCategorical)
-  rand(rng, dist.values)
 end
 
 ########################################
@@ -384,10 +394,6 @@ end
 
 (cond::DictCond)(x) = cond.dists[x]
 DictCond(dists...) = DictCond(Dict(dists...))
-
-# # test
-# cond = DictCond('a' => flat_dircat(1:3), 'b' => flat_dircat(10:15))
-# @assert rand(cond('a')) in 1:3
 
 ##############################################
 ### Interpreters of probabilistic programs ###
@@ -424,8 +430,22 @@ statements and nothing else.
 struct StdInterpreter <: Interpreter end
 
 function sample(i::StdInterpreter, dist, get_obs, set_obs)
-  x = rand(dist)
-  return i, x
+  return i, rand(dist)
+end
+
+"""
+    SupportInterpreter(trace)
+"""
+struct SupportInterpreter{T} <: Interpreter 
+  trace::T
+  insupport::Bool
+end
+
+SupportInterpreter(trace) = SupportInterpreter(trace, true)
+
+function sample(i::SupportInterpreter, dist, get_obs, set_obs)
+  x = get_obs(i.trace)
+  return SupportInterpreter(i.trace, i.insupport && insupport(dist, x)), x
 end
 
 """
