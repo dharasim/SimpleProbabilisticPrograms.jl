@@ -22,6 +22,7 @@ export logpdf # re-export from Distributions.jl
 export add_obs!, logvarpdf # interface for compound distributions
 export iid
 export UniformCategorical, BetaGeometric, DirCat, flat_dircat # specific dists
+export DictCond # simple conditional distribution
 
 using SpecialFunctions: digamma, logbeta
 using LogExpFunctions: logsumexp, logaddexp
@@ -367,6 +368,26 @@ end
 function rand(rng::AbstractRNG, dist::UniformCategorical)
   rand(rng, dist.values)
 end
+
+########################################
+### Simple conditional distributions ###
+########################################
+
+"""
+    DictCond(dists...)
+
+Simple conditional distributions mapping conditioning values to distributions.
+"""
+struct DictCond{T, D}
+  dists :: Dict{T, D}
+end
+
+(cond::DictCond)(x) = cond.dists[x]
+DictCond(dists...) = DictCond(Dict(dists...))
+
+# # test
+# cond = DictCond('a' => flat_dircat(1:3), 'b' => flat_dircat(10:15))
+# @assert rand(cond('a')) in 1:3
 
 ##############################################
 ### Interpreters of probabilistic programs ###
