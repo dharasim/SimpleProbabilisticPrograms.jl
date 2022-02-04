@@ -21,7 +21,8 @@ export ProbProgSyntaxError
 export logpdf, insupport # re-export from Distributions.jl
 export add_obs!, logvarpdf # interface for compound distributions
 export iid
-export UniformCategorical, BetaGeometric, DirCat, flat_dircat # specific dists
+export UniformCategorical, Dirac # specific distributions
+export BetaGeometric, DirCat, flat_dircat
 export DictCond # simple conditional distribution
 
 using SpecialFunctions: digamma, logbeta
@@ -378,6 +379,18 @@ rand(rng::AbstractRNG, dist::UniformCategorical) = rand(rng, dist.values)
 function logpdf(dist::UniformCategorical, x) 
   x in dist.values ? log(1) - log(length(dist.values)) : log(0)
 end
+
+##################################
+### Generic Dirac distribution ###
+##################################
+
+struct Dirac{T}
+  val :: T
+end
+
+insupport(dist::Dirac, x) = x == dist.val
+rand(::AbstractRNG, dist::Dirac) = dist.val
+logpdf(dist::Dirac, x) = x == dist.val ? log(1) : log(0)
 
 ########################################
 ### Simple conditional distributions ###

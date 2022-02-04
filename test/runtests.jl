@@ -1,7 +1,7 @@
 using SimpleProbabilisticPrograms
 using Test
 
-using Distributions: Beta, Bernoulli, Dirac
+using Distributions: Beta, Bernoulli
 
 @testset "basic tests" begin
   @probprog function beta_bernoulli_model(a, b, n)
@@ -12,10 +12,12 @@ using Distributions: Beta, Bernoulli, Dirac
   model = beta_bernoulli_model(3, 4, 10)
   trace = rand(model)
   @test -Inf < logpdf(model, trace) < 0
+  @test insupport(model, trace)
 
   # test uniform categorical
   dist = UniformCategorical(Set(1:4))
   @test -Inf < logpdf(dist, rand(dist)) < 0
+  @test insupport(dist, rand(dist))
 
   # test Dirac distribution
   dist = Dirac(42)
@@ -33,6 +35,7 @@ model = bijection_model(index_probs)
 @testset "trace bijection 1" begin
   @test rand(model) isa @NamedTuple{index::Int}
   @test log(0) < logpdf(model, rand(model)) < log(1)
+  @test insupport(model, rand(model))
 end
 
 import SimpleProbabilisticPrograms: fromtrace, totrace
@@ -42,6 +45,7 @@ totrace(::typeof(bijection_model), val) = (;index=findfirst(isequal('a'), vals))
 @testset "trace bijection 2" begin
   @test rand(model) isa Char
   @test log(0) < logpdf(model, rand(model)) < log(1)
+  @test insupport(model, rand(model))
 end
 
 using LogExpFunctions; logsumexp
@@ -58,12 +62,12 @@ using LogExpFunctions; logsumexp
   @test !dc.logpdfs_uptodate
 end
 
-@probprog function observation_test(dc)
-  char ~ dc[1]
-  num  ~ dc[2]
-  return
-end
 @testset "add observations in probprogs" begin
+  @probprog function observation_test(dc)
+    char ~ dc[1]
+    num  ~ dc[2]
+    return
+  end
   dc = (flat_dircat(collect("abc")), flat_dircat(1:4))
   SimpleProbabilisticPrograms.update_logpdfs!(dc[1])
   SimpleProbabilisticPrograms.update_logpdfs!(dc[2])
@@ -75,17 +79,24 @@ end
   @test dc[2].pscounts[trace.num] == 2 && sum(values(dc[2].pscounts)) == 5
 end
 
-@probprog function rec_model(p)
-  go_further ~ Bernoulli(p)
-  if go_further
-    next_level ~ rec_model(p)
-  end
-  return
-end
-
 @testset "recursive model" begin
+  @probprog function rec_model(p)
+    go_further ~ Bernoulli(p)
+    if go_further
+      next_level ~ rec_model(p)
+    end
+    return
+  end
+
   model = rec_model(0.3)
   for _ in 1:10
     @test log(0) < logpdf(model, rand(model)) < log(1)
+    @test insupport(model, rand(model))
   end
+end
+
+@testset "simple conditional" begin
+  cond = DictCond('a' => flat_dircat(1:3), 'b' => flat_dircat(10:15))
+  @test rand(cond('a')) in 1:3
+  @test rand(cond('b')) in 10:15
 end
