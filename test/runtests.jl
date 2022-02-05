@@ -68,7 +68,7 @@ end
     num  ~ dc[2]
     return
   end
-  dc = (flat_dircat(collect("abc")), flat_dircat(1:4))
+  dc = (symdircat(collect("abc")), symdircat(1:4))
   SimpleProbabilisticPrograms.update_logpdfs!(dc[1])
   SimpleProbabilisticPrograms.update_logpdfs!(dc[2])
   trace = rand(observation_test(dc))
@@ -96,7 +96,7 @@ end
 end
 
 @testset "simple conditional" begin
-  cond = DictCond('a' => flat_dircat(1:3), 'b' => flat_dircat(10:15))
+  cond = DictCond('a' => symdircat(1:3), 'b' => symdircat(10:15))
   @test rand(cond('a')) in 1:3
   @test rand(cond('b')) in 10:15
 end

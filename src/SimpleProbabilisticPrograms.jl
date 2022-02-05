@@ -22,7 +22,7 @@ export logpdf, insupport # re-export from Distributions.jl
 export add_obs!, logvarpdf # interface for compound distributions
 export iid
 export UniformCategorical, Dirac # specific distributions
-export BetaGeometric, DirCat, flat_dircat
+export BetaGeometric, DirCat, symdircat
 export DictCond # simple conditional distribution
 
 using SpecialFunctions: digamma, logbeta
@@ -258,7 +258,7 @@ mutable struct DirCat{T}
   end
 end
 
-flat_dircat(xs) = DirCat(Dict(x => 1 for x in xs))
+symdircat(xs, concentration=1.0) = DirCat(Dict(x => concentration for x in xs))
 insupport(dc::DirCat, x) = haskey(dc.pscounts, x) && dc.pscounts[x] > 0
 
 function update_logpdfs!(dc::DirCat)
