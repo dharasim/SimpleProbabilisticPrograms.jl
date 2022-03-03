@@ -1,6 +1,6 @@
 name = "SimpleProbabilisticPrograms"
 uuid = "be9b72de-c8a7-4672-afa1-cdbf18967232"
-authors = ["Daniel Harasim <daniel.harasim@epfl.ch>"]
+authors = ["Daniel Harasim <dr.dharasim@gmail.com>"]
 version = "0.1.0"
 
 [deps]
