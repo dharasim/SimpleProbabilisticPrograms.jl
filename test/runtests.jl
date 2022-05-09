@@ -7,7 +7,7 @@ using Distributions: Beta, Bernoulli
   @probprog function beta_bernoulli_model(a, b, n)
     bias ~ Beta(a, b)
     coins ~ iid(Bernoulli(bias), n)
-    return
+    return (; bias, coins)
   end
   model = beta_bernoulli_model(3, 4, 10)
   trace = rand(model)
@@ -28,22 +28,26 @@ end
 using Distributions: Categorical
 @probprog function bijection_model(index_probs)
   index ~ Categorical(index_probs)
-  return
+  return (; index)
 end
-index_probs = [0.5, 0.5]
-model = bijection_model(index_probs)
+model = bijection_model([0.5, 0.5])
 @testset "trace bijection 1" begin
   @test rand(model) isa @NamedTuple{index::Int}
   @test log(0) < logpdf(model, rand(model)) < log(1)
   @test insupport(model, rand(model))
 end
 
-import SimpleProbabilisticPrograms: fromtrace, totrace
+import SimpleProbabilisticPrograms: recover_trace
 const vals = ('a', 'b')
-fromtrace(::typeof(bijection_model), trace) = vals[trace.index]
-totrace(::typeof(bijection_model), val) = (;index=findfirst(isequal('a'), vals))
+@probprog function bijection_model(index_probs)
+  index ~ Categorical(index_probs)
+  return vals[index]
+end
+recover_trace(::probprogtype(bijection_model), x) = (; index=findfirst(isequal(x), vals))
 @testset "trace bijection 2" begin
+  model = bijection_model([0.6, 0.4])
   @test rand(model) isa Char
+  @test rand(model) in vals
   @test log(0) < logpdf(model, rand(model)) < log(1)
   @test insupport(model, rand(model))
 end
@@ -66,7 +70,7 @@ end
   @probprog function observation_test(dc)
     char ~ dc[1]
     num  ~ dc[2]
-    return
+    return (; char, num)
   end
   dc = (symdircat(collect("abc")), symdircat(1:4))
   SimpleProbabilisticPrograms.update_logpdfs!(dc[1])
@@ -79,13 +83,26 @@ end
   @test dc[2].pscounts[trace.num] == 2 && sum(values(dc[2].pscounts)) == 5
 end
 
+@probprog function rec_model(p)
+  go_further ~ Bernoulli(p)
+  if go_further
+    next_level ~ rec_model(p)
+    return (; go_further, next_level)
+  else
+    return (; go_further)
+  end
+end
+rand(rec_model(0.2))
+
 @testset "recursive model" begin
   @probprog function rec_model(p)
     go_further ~ Bernoulli(p)
     if go_further
       next_level ~ rec_model(p)
+      return (; go_further, next_level)
+    else
+      return (; go_further)
     end
-    return
   end
 
   model = rec_model(0.3)

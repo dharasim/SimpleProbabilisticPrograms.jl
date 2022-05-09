@@ -16,7 +16,7 @@
 
 module SimpleProbabilisticPrograms
 
-export @probprog, fromtrace, totrace # construction of probabilistic programs
+export @probprog, ProbProg, probprogtype, recover_trace # construction of probabilistic programs
 export ProbProgSyntaxError
 export logpdf, insupport # re-export from Distributions.jl
 export add_obs!, logvarpdf # interface for compound distributions
@@ -47,32 +47,27 @@ struct ProbProg{C, F, A, KW}
 end
 
 show(io::IO, ::ProbProg) = print(io, "ProbProg(...)")
-
-fromtrace(prog::ProbProg, trace) = fromtrace(prog.construct, trace)
-totrace(prog::ProbProg, x) = totrace(prog.construct, x)
-
-fromtrace(::Any, trace) = trace
-totrace(::Any, x) = x
+probprogtype(construct) = ProbProg{typeof(construct)}
+recover_trace(::ProbProg, trace) = trace
 
 function logpdf(model::ProbProg, x)
-  trace = totrace(model, x)
+  trace = recover_trace(model, x)
   interpreter, _ = interpret(model, EvalTrace(0.0, trace))
   interpreter.logpdf
 end
 
 function rand(rng::AbstractRNG, model::ProbProg)
-  trace = interpret(model, RandTrace(rng)).interpreter.trace
-  fromtrace(model, trace)
+  interpret(model, RandTrace(rng)).return_val
 end
 
 function insupport(model::ProbProg, x)
-  trace = totrace(model, x)
+  trace = recover_trace(model, x)
   interpreter, _ = interpret(model, SupportInterpreter(trace))
   interpreter.insupport
 end
 
 function add_obs!(model::ProbProg, x, pscount) 
-  trace = totrace(model, x)
+  trace = recover_trace(model, x)
   interpret(model, AddObs(trace, float(pscount)))
   return nothing
 end
@@ -125,10 +120,6 @@ The getter and setter are used by the interpreters of the program.
 macro probprog(ex)
   i = gensym() # generate unique symbol for the interpreter
 
-  # Rewrite a single sample statement indicated by `~` into a call to the
-  # sample method, which takes 4 arguments: an interpreter, 
-  # a distribution (something that implements rand and logpdf), 
-  # as well as a getter and a setter for the the sample site in the trace.
   function rewrite_sample_expr(ex)
     if @capture(ex, name_ ~ distribution_call_)
       get_ex = :(trace -> trace.$name)
@@ -138,6 +129,11 @@ macro probprog(ex)
     else
       ex
     end
+  end
+
+  function rewrite_return_expr(ex)
+    @capture(ex, return r_ex_) || return ex
+    :( return (interpreter=$i, return_val=$r_ex) )
   end
 
   # dictionary representing the function definition in expression `ex`
@@ -151,16 +147,32 @@ macro probprog(ex)
     throw(ProbProgSyntaxError("last expression cannot be a sample statement"))
   end
 
-  # rewrite all sample statements indicated by `~`
-  def_dict[:body] = postwalk(rewrite_sample_expr, def_dict[:body])
+  # rewrite return statements
+  def_dict[:body] = prewalk(def_dict[:body]) do ex
+    @capture(ex, return r_ex_) || return ex
+    :( return (interpreter=$i, return_val=$r_ex) )
+  end
 
-  # add interpreter to the original return expression
-  def_dict[:body].args[end] = 
-    if @capture(def_dict[:body].args[end], return r_ex_)
-      :((interpreter=$i, return_val=$r_ex))
-    else
-      :((interpreter=$i, return_val=$(def_dict[:body].args[end])))
-    end
+  # rewrite all sample statements indicated by `~`
+  # Rewrite a single sample statement indicated by `~` into a call to the
+  # sample method, which takes 4 arguments: an interpreter, 
+  # a distribution (something that implements rand and logpdf), 
+  # as well as a getter and a setter for the the sample site in the trace.
+  def_dict[:body] = postwalk(def_dict[:body]) do ex
+    @capture(ex, name_ ~ distribution_call_) || return ex
+    get_ex = :(trace -> trace.$name)
+    set_ex = :((trace, val) -> (trace..., $name = val))
+    :(($i, $name) = SimpleProbabilisticPrograms.sample(
+                        $i, $distribution_call, $get_ex, $set_ex))
+  end
+
+  # # add interpreter to the original return expression
+  # def_dict[:body].args[end] = 
+  #   if @capture(def_dict[:body].args[end], return r_ex_)
+  #     :((interpreter=$i, return_val=$r_ex))
+  #   else
+  #     :((interpreter=$i, return_val=$(def_dict[:body].args[end])))
+  #   end
 
   name = def_dict[:name]
   def_dict[:name] = :run
@@ -171,7 +183,7 @@ macro probprog(ex)
   esc(
     quote
       function $name(args...; kwargs...) 
-          $(combinedef(def_dict)) # interpolate fun def as "run" method
+        $(combinedef(def_dict)) # interpolate fun def as "run" method
         SimpleProbabilisticPrograms.ProbProg($name, run, args, kwargs)
       end
     end

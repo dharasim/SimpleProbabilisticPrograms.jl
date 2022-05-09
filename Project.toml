@@ -1,7 +1,7 @@
 name = "SimpleProbabilisticPrograms"
 uuid = "be9b72de-c8a7-4672-afa1-cdbf18967232"
 authors = ["Daniel Harasim <dr.dharasim@gmail.com>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
@@ -16,4 +16,4 @@ julia = "1.7"
 Distributions = "0.25"
 LogExpFunctions = "0.3"
 MacroTools = "0.5"
-SpecialFunctions = "1.8"
+SpecialFunctions = "1.8 - 2.1" 
