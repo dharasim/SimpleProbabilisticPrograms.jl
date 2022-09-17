@@ -43,7 +43,7 @@ const vals = ('a', 'b')
   index ~ Categorical(index_probs)
   return vals[index]
 end
-recover_trace(::probprogtype(bijection_model), x) = (; index=findfirst(isequal(x), vals))
+recover_trace(::ProbProg{:bijection_model}, x) = (; index=findfirst(isequal(x), vals))
 @testset "trace bijection 2" begin
   model = bijection_model([0.6, 0.4])
   @test rand(model) isa Char
@@ -94,22 +94,21 @@ end
 end
 rand(rec_model(0.2))
 
-@testset "recursive model" begin
-  @probprog function rec_model(p)
-    go_further ~ Bernoulli(p)
-    if go_further
-      next_level ~ rec_model(p)
-      return (; go_further, next_level)
-    else
-      return (; go_further)
-    end
+# @testset "recursive model" begin
+@probprog function rec_model(p)
+  go_further ~ Bernoulli(p)
+  if go_further
+    next_level ~ rec_model(p)
+    return (; go_further, next_level)
+  else
+    return (; go_further)
   end
+end
 
-  model = rec_model(0.3)
-  for _ in 1:10
-    @test log(0) < logpdf(model, rand(model)) < log(1)
-    @test insupport(model, rand(model))
-  end
+model = rec_model(0.3)
+for _ in 1:10
+  @test log(0) < logpdf(model, rand(model)) < log(1)
+  @test insupport(model, rand(model))
 end
 
 @testset "simple conditional" begin
@@ -118,6 +117,7 @@ end
   @test rand(cond('b')) in 10:15
 end
 
+# using Distributions: Beta, Bernoulli
 # @probprog function beta_bernoulli_model(a, b, n)
 #   bias ~ Beta(a, b)
 #   coins ~ iid(Bernoulli(bias), n)

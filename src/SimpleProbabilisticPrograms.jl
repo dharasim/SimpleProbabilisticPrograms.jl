@@ -42,15 +42,12 @@ const SPPs = SimpleProbabilisticPrograms
 ### Probabilistic programs ###
 ##############################
 
-struct ProbProg{C, F, A, KW}
-  construct::C
-  run::F
+struct ProbProg{NAME, A, KW}
   args::A
   kwargs::KW
 end
 
-show(io::IO, ::ProbProg) = print(io, "ProbProg(...)")
-probprogtype(construct) = ProbProg{typeof(construct)}
+show(io::IO, prog::ProbProg{NAME}) where NAME = print(io, "ProbProg{$NAME}(...)")
 recover_trace(::ProbProg, trace) = trace
 
 function logpdf(model::ProbProg, x)
@@ -78,6 +75,8 @@ end
 struct ProbProgSyntaxError <: Exception 
   msg :: String
 end
+
+function run end
 
 """
     @probprog function_definition
@@ -130,8 +129,8 @@ macro probprog(ex)
   # dictionary representing the function definition in expression `ex`
   def_dict = splitdef(ex)
 
-  # add interpreter as first argument
-  def_dict[:args] = [i, def_dict[:args]...]
+  # add constructor name and interpreter as first argument
+  def_dict[:args] = [:(::Type{<:ProbProg{$(Meta.quot(def_dict[:name]))}}), i, def_dict[:args]...]
 
   # test that last expression is not a sample expression
   if @capture(def_dict[:body].args[end], _ ~ _)
@@ -155,17 +154,16 @@ macro probprog(ex)
     :(($i, $name) = $SPPs.sample($i, $distribution_call, $lens))
   end
 
-  name = def_dict[:name]
-  def_dict[:name] = :run
-
+  construct = def_dict[:name]
+  def_dict[:name] = :($SPPs.run)
   # The expression returned by the macro evaluates to a definition of a function
   # that constructs a `ProbProg` object. This mimics the construction of 
   # distributions in `Distributions.jl`.
   esc(
     quote
-      function $name(args...; kwargs...) 
-        $(combinedef(def_dict)) # interpolate fun def as "run" method
-        SimpleProbabilisticPrograms.ProbProg($name, run, args, kwargs)
+      $(combinedef(def_dict)) # interpolate fun def as "run" method
+      function $construct(args...; kwargs...)
+        $SPPs.ProbProg{$(Meta.quot(construct)), typeof(args), typeof(kwargs)}(args, kwargs)
       end
     end
   )
@@ -423,8 +421,8 @@ Interpret a probabilistic program. This does not mutate the interpreter but
 returns a (new) interpreter with possible changes alongside the return values
 of the program.
 """
-function interpret(prog::ProbProg, i=StdInterpreter()::Interpreter)
-  prog.run(i, prog.args...; prog.kwargs...)
+function interpret(prog::P, i=StdInterpreter()::Interpreter) where P <: ProbProg
+  run(P, i, prog.args...; prog.kwargs...)
 end
 
 """
@@ -492,9 +490,8 @@ RandTrace(rng::AbstractRNG) = RandTrace(rng, (;))
 RandTrace() = RandTrace(default_rng())
 
 function sample(i::RandTrace, dist, lens)
-  x = rand(dist)
-  new_trace = insert(i.trace, lens, x)
-  return RandTrace(i.rng, new_trace), x
+  x = rand(i.rng, dist)
+  return RandTrace(i.rng, insert(i.trace, lens, x)), x
 end
 
 """
