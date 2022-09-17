@@ -1,7 +1,6 @@
 using SimpleProbabilisticPrograms
 using Test
 using Random
-
 using Distributions: Beta, Bernoulli
 
 @testset "basic tests" begin
@@ -10,10 +9,10 @@ using Distributions: Beta, Bernoulli
     coins ~ iid(Bernoulli(bias), n)
     return (; bias, coins)
   end
-  model  = beta_bernoulli_model(3, 4, 10)
-  trace  = rand(Random.MersenneTwister(42), model)
-  trace2 = rand(Random.MersenneTwister(42), model)
-  @test trace2 == trace
+  model = beta_bernoulli_model(3, 4, 10)
+  trace = rand(Random.MersenneTwister(42), model)
+  trace_static = rand(Random.MersenneTwister(42), beta_bernoulli_model(3, 4, Val(10)))
+  @test trace_static == trace
   @test -Inf < logpdf(model, trace) < 0
   @test insupport(model, trace)
 
@@ -86,32 +85,22 @@ end
   @test dc[2].pscounts[trace.num] == 2 && sum(values(dc[2].pscounts)) == 5
 end
 
-@probprog function rec_model(p)
-  go_further ~ Bernoulli(p)
-  if go_further
-    next_level ~ rec_model(p)
-    return (; go_further, next_level)
-  else
-    return (; go_further)
+@testset "recursive model" begin
+  @probprog function rec_model(p)
+    go_further ~ Bernoulli(p)
+    if go_further
+      next_level ~ rec_model(p)
+      return (; go_further, next_level)
+    else
+      return (; go_further)
+    end
   end
-end
-rand(rec_model(0.2))
 
-# @testset "recursive model" begin
-@probprog function rec_model(p)
-  go_further ~ Bernoulli(p)
-  if go_further
-    next_level ~ rec_model(p)
-    return (; go_further, next_level)
-  else
-    return (; go_further)
+  model = rec_model(0.3)
+  for _ in 1:10
+    @test log(0) < logpdf(model, rand(model)) < log(1)
+    @test insupport(model, rand(model))
   end
-end
-
-model = rec_model(0.3)
-for _ in 1:10
-  @test log(0) < logpdf(model, rand(model)) < log(1)
-  @test insupport(model, rand(model))
 end
 
 @testset "simple conditional" begin
@@ -120,12 +109,12 @@ end
   @test rand(cond('b')) in 10:15
 end
 
-# using Distributions: Beta, Bernoulli
-# @probprog function beta_bernoulli_model(a, b, n)
-#   bias ~ Beta(a, b)
-#   coins ~ iid(Bernoulli(bias), n)
-#   return (; bias, coins)
-# end
-# model = beta_bernoulli_model(3, 4, 10)
-# @time trace = rand(model)
-# @time logpdf(model, trace)
+using Distributions: Beta, Bernoulli
+@probprog function beta_bernoulli_model(a, b, n)
+  bias ~ Beta(a, b)
+  coins ~ iid(Bernoulli(bias), n)
+  return (; bias, coins)
+end
+@time model = beta_bernoulli_model(3, 4, 1000)
+@time trace = rand(model)
+@time logpdf(model, trace)

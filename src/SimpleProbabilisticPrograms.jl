@@ -31,7 +31,8 @@ using Distributions: Dirichlet, Categorical
 using Distributions: Beta, Binomial, BetaBinomial, Geometric
 using Random: AbstractRNG, default_rng
 using MacroTools: @capture, splitdef, combinedef, postwalk, prewalk
-using Accessors: insert, PropertyLens
+using Accessors: insert, PropertyLens, @set
+using StaticArrays: @SVector
 
 import Base: show, rand
 import Distributions: logpdf, insupport
@@ -47,7 +48,7 @@ struct ProbProg{NAME, A, KW}
   kwargs::KW
 end
 
-show(io::IO, prog::ProbProg{NAME}) where NAME = print(io, "ProbProg{$NAME}(...)")
+show(io::IO, ::ProbProg{NAME}) where NAME = print(io, "ProbProg{$NAME}(...)")
 recover_trace(::ProbProg, trace) = trace
 
 function logpdf(model::ProbProg, x)
@@ -119,7 +120,8 @@ For example, `heads ~ Bernoulli(0.5)` is transformed into
 The lens is used as getter and setter by the interpreters of the program.
 """
 macro probprog(ex)
-  i = gensym() # generate unique symbol for the interpreter
+  interpreter(i) = Symbol('i')
+  i = 0
 
   function rewrite_return_expr(ex)
     @capture(ex, return r_ex_) || return ex
@@ -129,19 +131,13 @@ macro probprog(ex)
   # dictionary representing the function definition in expression `ex`
   def_dict = splitdef(ex)
 
-  # add probprog type and interpreter as first argument
-  type_ex = :(::Type{<:ProbProg{$(Meta.quot(def_dict[:name]))}})
-  def_dict[:args] = [type_ex, i, def_dict[:args]...]
+  # add probprog name and interpreter as first argument
+  type_ex = :(::$(Val{Symbol(string(Meta.quot(def_dict[:name]))[2:end])}))
+  def_dict[:args] = [type_ex, interpreter(i), def_dict[:args]...]
 
   # test that last expression is not a sample expression
   if @capture(def_dict[:body].args[end], _ ~ _)
     throw(ProbProgSyntaxError("last expression cannot be a sample statement"))
-  end
-
-  # rewrite return statements
-  def_dict[:body] = prewalk(def_dict[:body]) do ex
-    @capture(ex, return r_ex_) || return ex
-    :(return (interpreter=$i, return_val=$r_ex))
   end
 
   # rewrite all sample statements indicated by `~`
@@ -152,11 +148,21 @@ macro probprog(ex)
   def_dict[:body] = postwalk(def_dict[:body]) do ex
     @capture(ex, name_ ~ distribution_call_) || return ex
     lens = SPPs.PropertyLens{name}()
-    :(($i, $name) = $SPPs.sample($i, $distribution_call, $lens))
+    in = interpreter(i)
+    i += 1
+    out = interpreter(i)
+    :(($out, $name) = $SPPs.sample($in, $distribution_call, $lens))
+  end
+
+  # rewrite return statements
+  def_dict[:body] = prewalk(def_dict[:body]) do ex
+    @capture(ex, return r_ex_) || return ex
+    :(return (interpreter=$(interpreter(i)), return_val=$r_ex))
   end
 
   construct = def_dict[:name]
   def_dict[:name] = :($SPPs.run)
+
   # The expression returned by the macro evaluates to a definition of a function
   # that constructs a `ProbProg` object. This mimics the construction of 
   # distributions in `Distributions.jl`.
@@ -174,13 +180,17 @@ end
 ### iid distributed random variables ###
 ########################################
 
-struct IID{D}
+struct IID{N, D}
   dist::D
-  n::Int
+  n::N
   
-  function IID(dist::D, n) where D
+  function IID(dist::D, n::Integer) where D
     @assert n > 0
-    new{D}(dist, n)
+    new{typeof(n), D}(dist, n)
+  end
+  function IID(dist::D, n::Val{N}) where {D, N}
+    @assert N > 0
+    new{Val{N}, D}(dist, n)
   end
 end
 
@@ -209,7 +219,15 @@ julia> rand(iid(Bernoulli(0.4), 5))
 iid(dist, n) = IID(dist, n)
 
 logpdf(iid::IID, xs) = sum(logpdf(iid.dist, x) for x in xs)
-rand(rng::AbstractRNG, iid::IID) = [rand(rng, iid.dist) for _ in 1:iid.n]
+rand(rng::AbstractRNG, iid::IID{<:Integer}) = [rand(rng, iid.dist) for _ in 1:iid.n]
+@generated rand(rng::AbstractRNG, iid::IID{Val{N}}) where N = quote
+  v = @SVector fill(rand(rng, iid.dist), $N)
+  for i in 2:$N
+    v = @set v[i] = rand(rng, iid.dist)
+  end
+  v
+end
+# :(@SVector [rand($rng, $iid.dist) for _ in 1:$N])
 insupport(iid::IID, xs) = all(insupport(iid.dist, x) for x in xs)
 
 ########################
@@ -422,8 +440,8 @@ Interpret a probabilistic program. This does not mutate the interpreter but
 returns a (new) interpreter with possible changes alongside the return values
 of the program.
 """
-function interpret(prog::P, i=StdInterpreter()::Interpreter) where P <: ProbProg
-  run(P, i, prog.args...; prog.kwargs...)
+function interpret(prog::ProbProg{NAME}, i=StdInterpreter()::Interpreter) where NAME
+  run(Val(NAME), i, prog.args...; prog.kwargs...)
 end
 
 """
