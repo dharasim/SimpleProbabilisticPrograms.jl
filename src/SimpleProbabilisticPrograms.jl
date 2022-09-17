@@ -31,9 +31,12 @@ using Distributions: Dirichlet, Categorical
 using Distributions: Beta, Binomial, BetaBinomial, Geometric
 using Random: AbstractRNG, default_rng
 using MacroTools: @capture, splitdef, combinedef, postwalk, prewalk
+using Accessors: insert, PropertyLens
 
 import Base: show, rand
 import Distributions: logpdf, insupport
+
+const SPPs = SimpleProbabilisticPrograms
 
 ##############################
 ### Probabilistic programs ###
@@ -113,27 +116,15 @@ julia> logpdf(prog, x)
 All sample statements, which must be declared using the syntax 
 `name ~ distribution`, are transformed into calls of the `sample` function.
 For example, `heads ~ Bernoulli(0.5)` is transformed into
-`interpreter, heads = sample(interpreter, Bernoulli(0.5), get, set)` where
-`get(trace) = trace.heads` and `set(trace, val) = (trace..., heads=val)`. 
-The getter and setter are used by the interpreters of the program.
+`interpreter, heads = sample(interpreter, Bernoulli(0.5), PropertyLens{name}())`.
+The lens is used as getter and setter by the interpreters of the program.
 """
 macro probprog(ex)
   i = gensym() # generate unique symbol for the interpreter
 
-  function rewrite_sample_expr(ex)
-    if @capture(ex, name_ ~ distribution_call_)
-      get_ex = :(trace -> trace.$name)
-      set_ex = :((trace, val) -> (trace..., $name = val))
-      :(($i, $name) = SimpleProbabilisticPrograms.sample(
-                        $i, $distribution_call, $get_ex, $set_ex))
-    else
-      ex
-    end
-  end
-
   function rewrite_return_expr(ex)
     @capture(ex, return r_ex_) || return ex
-    :( return (interpreter=$i, return_val=$r_ex) )
+    :(return (interpreter=$i, return_val=$r_ex))
   end
 
   # dictionary representing the function definition in expression `ex`
@@ -150,29 +141,19 @@ macro probprog(ex)
   # rewrite return statements
   def_dict[:body] = prewalk(def_dict[:body]) do ex
     @capture(ex, return r_ex_) || return ex
-    :( return (interpreter=$i, return_val=$r_ex) )
+    :(return (interpreter=$i, return_val=$r_ex))
   end
 
   # rewrite all sample statements indicated by `~`
   # Rewrite a single sample statement indicated by `~` into a call to the
-  # sample method, which takes 4 arguments: an interpreter, 
+  # sample method, which takes 3 arguments: an interpreter, 
   # a distribution (something that implements rand and logpdf), 
-  # as well as a getter and a setter for the the sample site in the trace.
+  # as well as the lens of the trace's sample site.
   def_dict[:body] = postwalk(def_dict[:body]) do ex
     @capture(ex, name_ ~ distribution_call_) || return ex
-    get_ex = :(trace -> trace.$name)
-    set_ex = :((trace, val) -> (trace..., $name = val))
-    :(($i, $name) = SimpleProbabilisticPrograms.sample(
-                        $i, $distribution_call, $get_ex, $set_ex))
+    lens = SPPs.PropertyLens{name}()
+    :(($i, $name) = $SPPs.sample($i, $distribution_call, $lens))
   end
-
-  # # add interpreter to the original return expression
-  # def_dict[:body].args[end] = 
-  #   if @capture(def_dict[:body].args[end], return r_ex_)
-  #     :((interpreter=$i, return_val=$r_ex))
-  #   else
-  #     :((interpreter=$i, return_val=$(def_dict[:body].args[end])))
-  #   end
 
   name = def_dict[:name]
   def_dict[:name] = :run
@@ -430,7 +411,7 @@ DictCond(dists...) = DictCond(Dict(dists...))
 Supertype for objects that can interpret probabilistic programs.
 
 New interpreter types must implement 
-`sample(interpreter, distribution, get_observation, set_observation)`.
+`sample(interpreter, distribution, lens)`.
 Then, they can be used with `interpret(prog, interpreter)` automatically.
 """
 abstract type Interpreter end
@@ -454,7 +435,7 @@ statements and nothing else.
 """
 struct StdInterpreter <: Interpreter end
 
-function sample(i::StdInterpreter, dist, get_obs, set_obs)
+function sample(i::StdInterpreter, dist, lens)
   return i, rand(dist)
 end
 
@@ -468,8 +449,8 @@ end
 
 SupportInterpreter(trace) = SupportInterpreter(trace, true)
 
-function sample(i::SupportInterpreter, dist, get_obs, set_obs)
-  x = get_obs(i.trace)
+function sample(i::SupportInterpreter, dist, lens)
+  x = lens(i.trace)
   return SupportInterpreter(i.trace, i.insupport && insupport(dist, x)), x
 end
 
@@ -490,8 +471,8 @@ function addto_total_logpdf(i::EvalTrace, logpdf)
   EvalTrace(i.logpdf + logpdf, i.trace)
 end
 
-function sample(i::EvalTrace, dist, get_obs, set_obs)
-  x = get_obs(i.trace)
+function sample(i::EvalTrace, dist, lens)
+  x = lens(i.trace)
   i = addto_total_logpdf(i, logpdf(dist, x))
   return i, x
 end
@@ -510,9 +491,9 @@ end
 RandTrace(rng::AbstractRNG) = RandTrace(rng, (;))
 RandTrace() = RandTrace(default_rng())
 
-function sample(i::RandTrace, dist, get_obs, set_obs)
+function sample(i::RandTrace, dist, lens)
   x = rand(dist)
-  new_trace = set_obs(i.trace, x)
+  new_trace = insert(i.trace, lens, x)
   return RandTrace(i.rng, new_trace), x
 end
 
@@ -524,8 +505,8 @@ struct AddObs{T} <: Interpreter
   pscount::Float64
 end
 
-function sample(i::AddObs, dist, get_obs, set_obs)
-  x = get_obs(i.trace)
+function sample(i::AddObs, dist, lens)
+  x = lens(i.trace)
   add_obs!(dist, x, i.pscount)
   return i, x
 end

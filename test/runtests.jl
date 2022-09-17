@@ -117,3 +117,12 @@ end
   @test rand(cond('a')) in 1:3
   @test rand(cond('b')) in 10:15
 end
+
+# @probprog function beta_bernoulli_model(a, b, n)
+#   bias ~ Beta(a, b)
+#   coins ~ iid(Bernoulli(bias), n)
+#   return (; bias, coins)
+# end
+# model = beta_bernoulli_model(3, 4, 10)
+# @time trace = rand(model)
+# @time logpdf(model, trace)
