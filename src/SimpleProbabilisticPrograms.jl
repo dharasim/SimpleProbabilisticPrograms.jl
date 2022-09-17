@@ -129,8 +129,9 @@ macro probprog(ex)
   # dictionary representing the function definition in expression `ex`
   def_dict = splitdef(ex)
 
-  # add constructor name and interpreter as first argument
-  def_dict[:args] = [:(::Type{<:ProbProg{$(Meta.quot(def_dict[:name]))}}), i, def_dict[:args]...]
+  # add probprog type and interpreter as first argument
+  type_ex = :(::Type{<:ProbProg{$(Meta.quot(def_dict[:name]))}})
+  def_dict[:args] = [type_ex, i, def_dict[:args]...]
 
   # test that last expression is not a sample expression
   if @capture(def_dict[:body].args[end], _ ~ _)

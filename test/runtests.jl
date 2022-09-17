@@ -1,5 +1,6 @@
 using SimpleProbabilisticPrograms
 using Test
+using Random
 
 using Distributions: Beta, Bernoulli
 
@@ -9,8 +10,10 @@ using Distributions: Beta, Bernoulli
     coins ~ iid(Bernoulli(bias), n)
     return (; bias, coins)
   end
-  model = beta_bernoulli_model(3, 4, 10)
-  trace = rand(model)
+  model  = beta_bernoulli_model(3, 4, 10)
+  trace  = rand(Random.MersenneTwister(42), model)
+  trace2 = rand(Random.MersenneTwister(42), model)
+  @test trace2 == trace
   @test -Inf < logpdf(model, trace) < 0
   @test insupport(model, trace)
 
