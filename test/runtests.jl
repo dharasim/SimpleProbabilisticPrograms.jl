@@ -1,7 +1,9 @@
 using SimpleProbabilisticPrograms
 using Test
-using Random
+
+using Random: MersenneTwister
 using Distributions: Beta, Bernoulli
+using Statistics: mean
 
 @testset "basic tests" begin
   @probprog function beta_bernoulli_model(a, b, n)
@@ -10,8 +12,8 @@ using Distributions: Beta, Bernoulli
     return (; bias, coins)
   end
   model = beta_bernoulli_model(3, 4, 10)
-  trace = rand(Random.MersenneTwister(42), model)
-  trace_static = rand(Random.MersenneTwister(42), beta_bernoulli_model(3, 4, Val(10)))
+  trace = rand(MersenneTwister(42), model)
+  trace_static = rand(MersenneTwister(42), beta_bernoulli_model(3, 4, Val(10)))
   @test trace_static == trace
   @test -Inf < logpdf(model, trace) < 0
   @test insupport(model, trace)
@@ -109,12 +111,43 @@ end
   @test rand(cond('b')) in 10:15
 end
 
-using Distributions: Beta, Bernoulli
-@probprog function beta_bernoulli_model(a, b, n)
-  bias ~ Beta(a, b)
-  coins ~ iid(Bernoulli(bias), n)
-  return (; bias, coins)
+@testset "Monte Carlo" begin
+  @probprog function bbm(a, b, n) # beta bernoulli model
+    bias ~ Beta(a, b)
+    coins ~ iid(Bernoulli(bias), n)
+    return (; bias, coins)
+  end
+
+  N = 1000
+  model = bbm(1, 1, N)
+  data = rand(iid(Bernoulli(0.4), N))
+  E = montecarlo(condition(model, on=(; coins=data)), LikelihoodWeighting(10_000)) 
+  @test E(trace -> trace.bias) ≈ mean(data) atol=0.01
+
+  # TODO: Test montecarlo with multivariate function
 end
-@time model = beta_bernoulli_model(3, 4, 1000)
-@time trace = rand(model)
-@time logpdf(model, trace)
+
+
+# t1 = (a=1, b=(c=2, d=3, e=4))
+# t2 = (b=(c=5, d=6), f=7)
+# @test mergetraces(t1, t2) == (a=1, b=(c=5, d=6, e=4), f=7)
+
+# T1 = typeof(t1)
+# T2 = typeof(t2)
+# fieldnames(T1)
+# fieldtypes(T1)
+# fieldnames(T2)
+# fieldtypes(T2)
+
+# all_names = union(fieldnames(T1), fieldnames(T2))
+# map(all_names) do n
+#   if n in fieldnames(T1)
+#     if n in fieldnames(T2)
+#       if 
+#     else
+#       :($n = t1.$n)
+#     end
+#   else
+#     :($n = t2.$n)
+#   end
+# end

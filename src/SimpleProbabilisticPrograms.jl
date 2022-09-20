@@ -24,6 +24,8 @@ export iid
 export UniformCategorical, Dirac # specific distributions
 export BetaGeometric, DirCat, symdircat
 export DictCond # simple conditional distribution
+export Conditioned, condition, mergetraces, logdensity
+export montecarlo, MonteCarloMethod, LikelihoodWeighting, likelihood_weighting
 
 using SpecialFunctions: digamma, logbeta
 using LogExpFunctions: logsumexp, logaddexp
@@ -32,7 +34,7 @@ using Distributions: Beta, Binomial, BetaBinomial, Geometric
 using Random: AbstractRNG, default_rng
 using MacroTools: @capture, splitdef, combinedef, postwalk, prewalk
 using Accessors: insert, PropertyLens, @set
-using StaticArrays: @SVector
+using StaticArrays: @SVector, sacollect
 
 import Base: show, rand
 import Distributions: logpdf, insupport
@@ -48,7 +50,7 @@ struct ProbProg{NAME, A, KW}
   kwargs::KW
 end
 
-show(io::IO, ::ProbProg{NAME}) where NAME = print(io, "ProbProg{$NAME}(...)")
+show(io::IO, ::ProbProg{NAME}) where NAME = print(io, "ProbProg{:$NAME}(...)")
 recover_trace(::ProbProg, trace) = trace
 
 function logpdf(model::ProbProg, x)
@@ -120,7 +122,7 @@ For example, `heads ~ Bernoulli(0.5)` is transformed into
 The lens is used as getter and setter by the interpreters of the program.
 """
 macro probprog(ex)
-  interpreter(i) = Symbol('i')
+  interpreter(i) = Symbol("interpreter")
   i = 0
 
   function rewrite_return_expr(ex)
@@ -418,6 +420,73 @@ end
 (cond::DictCond)(x) = cond.dists[x]
 DictCond(dists...) = DictCond(Dict(dists...))
 
+#################################
+### Conditioned distributions ###
+#################################
+
+struct Conditioned{D, C}
+  joint :: D # joint distribution
+  conds :: C # values conditioned on (as a trace)
+end
+
+condition(joint; on) = Conditioned(joint, on)
+function rand(rng::AbstractRNG, cond::Conditioned{<:ProbProg})
+   interpret(cond.joint, RandTrace(rng, cond.conds)).interpreter.trace
+end
+
+logdensity(dist, x) = logpdf(dist, x)
+
+function logdensity(cond::Conditioned, trace)
+  logdensity(cond.joint, mergetraces(cond.conds, trace))  
+end
+
+mergetraces(t1::NamedTuple, t2::NamedTuple) = (; t1..., t2...)
+
+#########################
+### Inference Methods ###
+#########################
+
+abstract type MonteCarloMethod end
+
+function montecarlo(f, dist, mcm::MonteCarloMethod, rng::AbstractRNG=default_rng())
+  montecarlo(dist, mcm, rng)(f)
+end
+
+function montecarlo(dist, mcm::MonteCarloMethod, rng::AbstractRNG=default_rng())
+  samples, logweights = weighted_samples(mcm, dist, rng)
+  function 𝔼(f)
+    # Dispatch on whether f is multivariate.
+    function calc_expectation(::Type{<:AbstractArray{T}}) where T
+      weighted = Matrix{T}(undef, length(y), length(samples))
+      for j in eachindex(samples)
+        weighted[:, j] = log.(samples[j]) .+ logweights[j]
+      end
+      exp(logsumexp(weighted, dims=2) .- logsumexp(logweights))
+    end
+    function calc_expectation(::Type{<:Any})
+      weighted = map(samples, logweights) do x, logweight
+        log(f(x)) + logweight
+      end
+      exp(logsumexp(weighted) - logsumexp(logweights))
+    end
+    calc_expectation(typeof(f(first(samples))))
+  end
+end
+
+struct LikelihoodWeighting <: MonteCarloMethod
+  num_samples :: Int
+end
+
+function weighted_samples(mcm::LikelihoodWeighting, dist, rng) 
+  likelihood_weighting(dist, mcm.num_samples, rng)
+end
+
+function likelihood_weighting(model::Conditioned{<:ProbProg}, num_samples, rng::AbstractRNG=default_rng())
+  traces = rand(rng, iid(model, num_samples))
+  logweights = logdensity.((model,), traces)
+  traces, logweights
+end
+
 ##############################################
 ### Interpreters of probabilistic programs ###
 ##############################################
@@ -495,22 +564,25 @@ function sample(i::EvalTrace, dist, lens)
 end
 
 """
-    RandTrace([rng])
+    RandTrace([rng], [conds])
 
 Interpreter that runs a probabilistic program and traces the random choices
 made in the sample statements in a named tuple.
 """
-struct RandTrace{R,T} <: Interpreter
+struct RandTrace{R<:AbstractRNG,T<:NamedTuple} <: Interpreter
   rng::R
   trace::T
 end
 
 RandTrace(rng::AbstractRNG) = RandTrace(rng, (;))
-RandTrace() = RandTrace(default_rng())
 
-function sample(i::RandTrace, dist, lens)
-  x = rand(i.rng, dist)
-  return RandTrace(i.rng, insert(i.trace, lens, x)), x
+function sample(i::RandTrace, dist, lens::PropertyLens{name}) where name
+  if hasproperty(i.trace, name)
+    i, lens(i.trace)
+  else
+    x = rand(i.rng, dist)
+    RandTrace(i.rng, insert(i.trace, lens, x)), x
+  end
 end
 
 """
