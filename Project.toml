@@ -1,7 +1,7 @@
 name = "SimpleProbabilisticPrograms"
 uuid = "be9b72de-c8a7-4672-afa1-cdbf18967232"
 authors = ["Daniel Harasim <dr.dharasim@gmail.com>"]
-version = "0.2.1"
+version = "0.3.0"
 
 [deps]
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
